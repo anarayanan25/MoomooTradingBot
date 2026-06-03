@@ -9,7 +9,7 @@ WATCHLIST = [
     # ETFs
     "US.SMH", "US.VOO", "US.QQQ",
     # Others
-    "US.TSM", "US.AVGO", "US.BABA", "US.PANW", "US.MU",
+    "US.TSM", "US.AVGO", "US.BABA", "US.PANW", "US.MU", "US.MRVL", "US.ANET",
 ]
 
 # Strategy thresholds
