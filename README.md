@@ -6,7 +6,7 @@ An autonomous momentum trading bot for US stocks built on the Moomoo OpenAPI. Ru
 
 ## What It Does
 
-- Scans 17 US stocks every 5 minutes during market hours
+- Scans 18 US stocks every 5 minutes during market hours
 - Detects momentum buy signals: price +2% above the 2-hour rolling low
 - Automatically places paper buy and sell orders via the Moomoo API
 - Exits positions at +3% take profit or -1.5% stop loss
@@ -110,9 +110,9 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Trading hours | 10:00am – 3:45pm ET (avoids noisy open/close) |
 | Circuit breaker | Stop new buys if daily loss > $150 |
 
-**Watchlist (17 symbols):**
+**Watchlist (18 symbols):**
 - Mag 7: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
-- ETFs: SMH, VOO, QQQ
+- ETFs: SMH, VOO, QQQ, SPCX
 - Others: TSM, AVGO, BABA, PANW, MU, MRVL, ANET
 
 ---
@@ -160,19 +160,21 @@ MoomooTradingBot/
 
 ---
 
-## Paper Trading Performance (as of Jun 2026)
+## Paper Trading Performance (as of Jun 15, 2026)
 
 | Metric | Value |
 |--------|-------|
 | Starting capital | $1,000,000 (paper) |
-| Realized P&L | +$1,644.50 |
-| Unrealized P&L | -$255.28 |
-| Net P&L | +$1,389.41 |
-| Total trades | 13+ |
-| Win rate | ~54% |
-| Avg take profit | +$31.60 |
-| Avg stop loss | -$14.21 |
-| Risk/Reward | 2.2:1 |
+| Account value | $1,001,464.59 |
+| Realized P&L | -$103.72 |
+| Total closed trades | 20 |
+| Wins (take profit) | 8 |
+| Losses (stop loss) | 12 |
+| Win rate | 40% |
+| Avg take profit | +$31.62 |
+| Avg stop loss | -$29.72 |
+
+> ⚠️ **Note:** Avg stop loss heavily skewed by a single AVGO gap-down event on Jun 15 (-$171.40 / -17.9%). Excluding that outlier: avg stop loss -$15.13, win rate 40%, net realized P&L +$67.68. Overnight gap risk is the primary outstanding issue with the current strategy.
 
 ---
 

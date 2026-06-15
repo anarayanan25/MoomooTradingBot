@@ -7,7 +7,7 @@ WATCHLIST = [
     # Mag 7
     "US.AAPL", "US.MSFT", "US.GOOGL", "US.AMZN", "US.NVDA", "US.META", "US.TSLA",
     # ETFs
-    "US.SMH", "US.VOO", "US.QQQ",
+    "US.SMH", "US.VOO", "US.QQQ", "US.SPCX",
     # Others
     "US.TSM", "US.AVGO", "US.BABA", "US.PANW", "US.MU", "US.MRVL", "US.ANET",
 ]
