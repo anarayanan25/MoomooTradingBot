@@ -96,11 +96,13 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 
 ## Trading Strategy
 
-**Momentum strategy** — buys stocks breaking upward from a 2-hour base.
+**Momentum strategy** — buys stocks breaking upward from a 2-hour base with volume and institutional flow confirmation.
 
 | Parameter | Value |
 |-----------|-------|
 | Buy signal | Price >= +2% above 2hr rolling low |
+| Volume filter | Current bar volume >= 1.5x avg bar volume (confirms real momentum) |
+| Capital flow filter | Net intraday institutional inflow must be positive |
 | Take profit | +3% from entry price |
 | Stop loss | -1.5% from entry price |
 | Risk/reward | 2:1 |
@@ -109,6 +111,8 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Position size | $1,000 USD per trade |
 | Trading hours | 10:00am – 3:45pm ET (avoids noisy open/close) |
 | Circuit breaker | Stop new buys if daily loss > $150 |
+
+**Buy signal chain:** Price breakout → Volume surge → Institutional inflow → Buy
 
 **Watchlist (18 symbols):**
 - Mag 7: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
@@ -145,6 +149,9 @@ MoomooTradingBot/
 | Trading lock | Hardcoded `TrdEnv.SIMULATE` in executor.py | Config file too easy to accidentally change |
 | Interface | Claude conversational via skills | No UI to build, fully natural language |
 | Price history | Kline preload at startup + live rolling window | Signals ready immediately, no 2hr wait |
+| Volume history | Kline preload + per-bar delta from cumulative day volume | Tracks actual bar activity without extra API calls |
+| Capital flow timing | Only called after price + volume signals pass | Minimises API calls — only fires on real candidates |
+| Capital flow fail-open | Returns True if API errors | Never blocks a trade due to a connectivity issue |
 | Position persistence | JSON file on disk | Survives bot restarts without stale data |
 | Max positions guard | Pending buys lock + position count | Prevents race condition double-buys |
 
