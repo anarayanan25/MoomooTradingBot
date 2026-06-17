@@ -19,41 +19,45 @@ _OPEN_STATES = {"OPEN", "MARKET_OPEN", "MORNING", "AFTERNOON"}
 _CLOSED_STATES = {"AFTER_HOURS_END", "CLOSED", "NONE"}
 
 
-def get_quotes(symbols: list[str]) -> dict[str, float]:
+def get_quotes(symbols: list[str]) -> tuple[dict[str, float], dict[str, float]]:
     """
-    Fetch real-time last price for each symbol.
-    Returns {symbol: last_price}. Symbols that fail are omitted.
+    Fetch real-time last price and cumulative day volume for each symbol.
+    Returns (prices, volumes) — each is {symbol: value}. Symbols that fail are omitted.
     """
     ctx = OpenQuoteContext(host=config.OPEND_HOST, port=config.OPEND_PORT)
     try:
         ret, msg = ctx.subscribe(symbols, [SubType.QUOTE])
         if ret != RET_OK:
             log.error("Subscribe failed: %s", msg)
-            return {}
+            return {}, {}
 
         time.sleep(1)  # Allow subscription to settle before querying
         ret, data = ctx.get_stock_quote(symbols)
         if ret != RET_OK or data is None or len(data) == 0:
             log.error("get_stock_quote failed: %s", data)
-            return {}
+            return {}, {}
 
-        return {
-            row["code"]: float(row["last_price"])
-            for _, row in data.iterrows()
-            if row["last_price"] not in (None, "", "N/A")
-        }
+        prices, volumes = {}, {}
+        for _, row in data.iterrows():
+            code = row["code"]
+            if row["last_price"] not in (None, "", "N/A"):
+                prices[code] = float(row["last_price"])
+            vol = row.get("volume")
+            if vol not in (None, "", "N/A"):
+                volumes[code] = float(vol)
+        return prices, volumes
     except Exception as e:
         log.error("get_quotes error: %s", e)
-        return {}
+        return {}, {}
     finally:
         ctx.close()
 
 
-def preload_price_history(symbols: list[str]) -> dict[str, list[float]]:
+def preload_price_history(symbols: list[str]) -> dict[str, dict]:
     """
     Fetch the last LOOKBACK_BARS x 5-min candles for each symbol at startup.
-    Returns {symbol: [close_price, ...]} so strategy.py can pre-populate
-    its rolling history with real data instead of waiting 2 hours.
+    Returns {symbol: {"prices": [...], "volumes": [...]}} so strategy.py can
+    pre-populate rolling histories with real data instead of waiting 2 hours.
     """
     ctx = OpenQuoteContext(host=config.OPEND_HOST, port=config.OPEND_PORT)
     result = {}
@@ -68,10 +72,15 @@ def preload_price_history(symbols: list[str]) -> dict[str, list[float]]:
             if ret != RET_OK or data is None or len(data) == 0:
                 log.warning("Could not preload klines for %s", symbol)
                 continue
-            closes = [float(row["close"]) for _, row in data.iterrows()
-                      if row["close"] not in (None, "", "N/A")]
+            closes, bar_volumes = [], []
+            for _, row in data.iterrows():
+                if row["close"] not in (None, "", "N/A"):
+                    closes.append(float(row["close"]))
+                vol = row.get("volume")
+                if vol not in (None, "", "N/A"):
+                    bar_volumes.append(float(vol))
             if closes:
-                result[symbol] = closes
+                result[symbol] = {"prices": closes, "volumes": bar_volumes}
         log.info("Preloaded price history for %d/%d symbols (%d bars each)",
                  len(result), len(symbols), config.LOOKBACK_BARS)
     except Exception as e:
@@ -79,6 +88,30 @@ def preload_price_history(symbols: list[str]) -> dict[str, list[float]]:
     finally:
         ctx.close()
     return result
+
+
+def is_capital_flowing_in(symbol: str) -> bool:
+    """
+    Returns True if intraday net capital is flowing INTO the stock (bullish).
+    Sums all intraday in_flow values — positive total = net inflow.
+    Fails open: returns True if the API call fails so it never blocks a trade.
+    """
+    ctx = OpenQuoteContext(host=config.OPEND_HOST, port=config.OPEND_PORT)
+    try:
+        ret, data = ctx.get_capital_flow(symbol)
+        if ret != RET_OK or data is None or len(data) == 0:
+            log.warning("get_capital_flow failed for %s — skipping filter", symbol)
+            return True
+        total_inflow = float(data["in_flow"].sum())
+        flowing_in = total_inflow > 0
+        log.info("Capital flow %s | net_inflow=%.2f | flowing_in=%s",
+                 symbol, total_inflow, flowing_in)
+        return flowing_in
+    except Exception as e:
+        log.warning("is_capital_flowing_in error for %s: %s — skipping filter", symbol, e)
+        return True  # Fail open
+    finally:
+        ctx.close()
 
 
 def is_trading_hours() -> bool:

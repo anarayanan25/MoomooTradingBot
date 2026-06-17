@@ -32,6 +32,12 @@ TRADING_END_TIME   = "15:45"   # Avoid last 15min before close (3:45–4:00)
 # Circuit breaker — max daily realized loss before bot stops trading for the day
 MAX_DAILY_LOSS_USD = 150.0     # ~3 max stop-loss hits on $1,000 positions
 
+# Volume confirmation — current bar must exceed this multiple of the avg bar volume
+VOLUME_MULTIPLIER = 1.5        # e.g. 1.5x avg = above-average activity required
+
+# Capital flow filter — only buy if intraday net capital is flowing into the stock
+CAPITAL_FLOW_FILTER = True
+
 # OpenD connection
 OPEND_HOST = "127.0.0.1"
 OPEND_PORT = 11111

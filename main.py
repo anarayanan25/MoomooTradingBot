@@ -63,22 +63,25 @@ def scan():
     log.info("--- Scan started | positions=%d/%d ---",
              risk.position_count(), config.MAX_POSITIONS)
 
-    quotes = market_data.get_quotes(config.WATCHLIST)
-    if not quotes:
+    prices, volumes = market_data.get_quotes(config.WATCHLIST)
+    if not prices:
         log.warning("No quotes returned — skipping scan.")
         return
 
     log.info("Quotes received: %d symbols | sample: %s",
-             len(quotes),
-             ", ".join(f"{s.split('.')[1]}=${p:.2f}" for s, p in list(quotes.items())[:5]))
+             len(prices),
+             ", ".join(f"{s.split('.')[1]}=${p:.2f}" for s, p in list(prices.items())[:5]))
 
     for symbol in config.WATCHLIST:
-        price = quotes.get(symbol)
+        price = prices.get(symbol)
         if price is None or price <= 0:
             continue
 
-        # Always record price for rolling history
+        # Always record price and volume for rolling history
         strategy.record_price(symbol, price)
+        vol = volumes.get(symbol)
+        if vol is not None:
+            strategy.record_volume(symbol, vol)
 
         # --- Check existing position: take profit or stop loss ---
         position = risk.get_position(symbol)
@@ -102,6 +105,12 @@ def scan():
         if (not risk.is_circuit_breaker_triggered()
                 and risk.can_buy(symbol)
                 and strategy.check_buy_signal(symbol, price)):
+
+            # Capital flow filter — skip if institutional money is flowing out
+            if config.CAPITAL_FLOW_FILTER and not market_data.is_capital_flowing_in(symbol):
+                log.info("CAPITAL FLOW FILTER %s — net outflow detected, skipping buy", symbol)
+                continue
+
             quantity = risk.calc_quantity(price)
             risk.add_pending(symbol)  # Reserve slot immediately to prevent race condition
             order_id = executor.place_buy(symbol, quantity, price)
@@ -133,13 +142,15 @@ def main():
 
     _last_scan_time = 0.0  # monotonic timestamp of last completed scan
 
-    # Pre-populate rolling price history from historical 5-min candles
+    # Pre-populate rolling price and volume history from historical 5-min candles
     # so buy signals can fire from the first scan instead of after 2 hours
     log.info("Pre-loading 2hr price history from historical candles...")
     history = market_data.preload_price_history(config.WATCHLIST)
-    for symbol, prices in history.items():
-        for price in prices:
+    for symbol, data in history.items():
+        for price in data["prices"]:
             strategy.record_price(symbol, price)
+        if data["volumes"]:
+            strategy.preload_volume_history(symbol, data["volumes"])
     log.info("Price history ready for %d symbols", len(history))
 
     while _running:
