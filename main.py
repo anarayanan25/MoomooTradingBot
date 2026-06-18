@@ -16,13 +16,14 @@ import os
 import time
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, date
 
 import config
 import market_data
 import strategy
 import risk
 import executor
+import monitor
 
 # ============================================================
 # Logging setup
@@ -46,6 +47,10 @@ log = logging.getLogger(__name__)
 
 _running = True
 
+# Active watchlist — refreshed daily at market open
+_active_watchlist: list[str] = list(config.WATCHLIST)
+_last_filter_date: date | None = None
+
 def _shutdown(sig, frame):
     global _running
     log.info("Shutdown signal received — stopping bot.")
@@ -60,8 +65,18 @@ signal.signal(signal.SIGTERM, _shutdown)
 
 def scan():
     """One full scan cycle: fetch quotes, check signals, execute orders."""
-    log.info("--- Scan started | positions=%d/%d ---",
-             risk.position_count(), config.MAX_POSITIONS)
+    global _active_watchlist, _last_filter_date
+
+    # Refresh active watchlist once per trading day
+    if config.STOCK_FILTER_ENABLED:
+        today = date.today()
+        if _last_filter_date != today:
+            log.info("Stock filter: refreshing active watchlist for %s", today)
+            _active_watchlist = market_data.get_active_watchlist(config.WATCHLIST)
+            _last_filter_date = today
+
+    log.info("--- Scan started | positions=%d/%d | active_symbols=%d ---",
+             risk.position_count(), config.MAX_POSITIONS, len(_active_watchlist))
 
     prices, volumes = market_data.get_quotes(config.WATCHLIST)
     if not prices:
@@ -77,7 +92,7 @@ def scan():
         if price is None or price <= 0:
             continue
 
-        # Always record price and volume for rolling history
+        # Always record price and volume for rolling history (all symbols, not just active)
         strategy.record_price(symbol, price)
         vol = volumes.get(symbol)
         if vol is not None:
@@ -90,18 +105,27 @@ def scan():
                 symbol, position["entry_price"], price
             )
             if should_sell:
-                order_id = executor.place_sell(symbol, position["quantity"], price, reason)
-                if order_id:
-                    pnl_pct = (price - position["entry_price"]) / position["entry_price"] * 100
-                    risk.record_trade_pnl(position["entry_price"], price, position["quantity"])
-                    log.info(
-                        "CLOSED %s | reason=%s | entry=%.4f | exit=%.4f | pnl=%.2f%% | daily_pnl=$%.2f",
-                        symbol, reason, position["entry_price"], price, pnl_pct, risk.daily_pnl(),
-                    )
-                    risk.remove_position(symbol)
+                # Atomically claim the sell to prevent race with real-time monitor
+                if risk.mark_selling(symbol):
+                    try:
+                        order_id = executor.place_sell(symbol, position["quantity"], price, reason)
+                        if order_id:
+                            pnl_pct = (price - position["entry_price"]) / position["entry_price"] * 100
+                            risk.record_trade_pnl(position["entry_price"], price, position["quantity"])
+                            log.info(
+                                "CLOSED %s | reason=%s | entry=%.4f | exit=%.4f | pnl=%.2f%% | daily_pnl=$%.2f",
+                                symbol, reason, position["entry_price"], price, pnl_pct, risk.daily_pnl(),
+                            )
+                            risk.remove_position(symbol)
+                            monitor.on_position_closed(symbol)
+                    finally:
+                        risk.unmark_selling(symbol)
             continue  # Don't also check buy signal for held stocks
 
-        # --- Check buy signal for unwatched symbols ---
+        # --- Check buy signal for active symbols only ---
+        if symbol not in _active_watchlist:
+            continue
+
         if (not risk.is_circuit_breaker_triggered()
                 and risk.can_buy(symbol)
                 and strategy.check_buy_signal(symbol, price)):
@@ -116,6 +140,7 @@ def scan():
             order_id = executor.place_buy(symbol, quantity, price)
             if order_id:
                 risk.add_position(symbol, price, quantity, order_id)
+                monitor.on_position_opened(symbol)
             risk.remove_pending(symbol)  # Release reservation once position is recorded
 
     log.info("--- Scan complete | positions=%d/%d ---",
@@ -139,6 +164,10 @@ def main():
     log.info("=" * 60)
 
     risk.load()
+
+    # Start real-time position monitor (subscribes to quote pushes for open positions)
+    monitor.start()
+    monitor.sync(set(risk.open_symbols()))
 
     _last_scan_time = 0.0  # monotonic timestamp of last completed scan
 
@@ -178,6 +207,7 @@ def main():
 
         _last_scan_time = time.monotonic()
 
+    monitor.stop()
     log.info("Bot stopped.")
 
 

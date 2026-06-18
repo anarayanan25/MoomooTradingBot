@@ -5,6 +5,7 @@ Includes daily P&L circuit breaker.
 import json
 import logging
 import os
+import threading
 from datetime import date
 import config
 
@@ -17,6 +18,10 @@ _positions: dict = {}
 
 # Pending buys — symbols reserved the moment a buy decision is made, before order confirmation
 _pending_buys: set = set()
+
+# Sell guard — prevents double-sells between main scan loop and real-time monitor
+_being_sold: set = set()
+_sell_lock = threading.Lock()
 
 # Circuit breaker — daily realized P&L tracking
 _daily_pnl_usd: float = 0.0
@@ -86,6 +91,25 @@ def remove_position(symbol: str):
         del _positions[symbol]
         _save()
         log.info("Position closed: %s", symbol)
+
+
+def mark_selling(symbol: str) -> bool:
+    """
+    Atomically claim the right to sell a symbol.
+    Returns True if this caller should proceed with the sell.
+    Returns False if another thread already claimed it (double-sell guard).
+    """
+    with _sell_lock:
+        if symbol in _being_sold or symbol not in _positions:
+            return False
+        _being_sold.add(symbol)
+        return True
+
+
+def unmark_selling(symbol: str):
+    """Release the sell claim after the sell is complete or failed."""
+    with _sell_lock:
+        _being_sold.discard(symbol)
 
 
 def get_position(symbol: str) -> dict | None:

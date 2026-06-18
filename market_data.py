@@ -93,23 +93,82 @@ def preload_price_history(symbols: list[str]) -> dict[str, dict]:
 def is_capital_flowing_in(symbol: str) -> bool:
     """
     Returns True if intraday net capital is flowing INTO the stock (bullish).
-    Sums all intraday in_flow values — positive total = net inflow.
-    Fails open: returns True if the API call fails so it never blocks a trade.
+    Also checks big money (super+large orders) net inflow if BIG_MONEY_FILTER is enabled.
+    Fails open: returns True if any API call fails so it never blocks a trade.
     """
     ctx = OpenQuoteContext(host=config.OPEND_HOST, port=config.OPEND_PORT)
     try:
-        ret, data = ctx.get_capital_flow(symbol)
-        if ret != RET_OK or data is None or len(data) == 0:
+        # --- Total net inflow check ---
+        ret, flow_data = ctx.get_capital_flow(symbol)
+        if ret != RET_OK or flow_data is None or len(flow_data) == 0:
             log.warning("get_capital_flow failed for %s — skipping filter", symbol)
             return True
-        total_inflow = float(data["in_flow"].sum())
-        flowing_in = total_inflow > 0
-        log.info("Capital flow %s | net_inflow=%.2f | flowing_in=%s",
-                 symbol, total_inflow, flowing_in)
-        return flowing_in
+        total_inflow = float(flow_data["in_flow"].sum())
+        if total_inflow <= 0:
+            log.info("Capital flow %s | net_inflow=%.2f | flowing_in=False", symbol, total_inflow)
+            return False
+
+        # --- Big money check (super + large orders) ---
+        if config.BIG_MONEY_FILTER:
+            ret2, dist_data = ctx.get_capital_distribution(symbol)
+            if ret2 == RET_OK and dist_data is not None and len(dist_data) > 0:
+                row = dist_data.iloc[0]
+                big_in = float(row.get("capital_in_super", 0) or 0) + float(row.get("capital_in_big", 0) or 0)
+                big_out = float(row.get("capital_out_super", 0) or 0) + float(row.get("capital_out_big", 0) or 0)
+                big_net = big_in - big_out
+                if big_net <= 0:
+                    log.info(
+                        "BIG MONEY FILTER %s | big_net=%.2f — institutional outflow, skipping",
+                        symbol, big_net,
+                    )
+                    return False
+                log.info(
+                    "Capital signals %s | total_inflow=%.2f | big_net=%.2f | OK",
+                    symbol, total_inflow, big_net,
+                )
+            else:
+                log.warning("get_capital_distribution failed for %s — skipping big money check", symbol)
+
+        log.info("Capital flow %s | net_inflow=%.2f | flowing_in=True", symbol, total_inflow)
+        return True
     except Exception as e:
         log.warning("is_capital_flowing_in error for %s: %s — skipping filter", symbol, e)
         return True  # Fail open
+    finally:
+        ctx.close()
+
+
+def get_active_watchlist(symbols: list[str]) -> list[str]:
+    """
+    Returns the subset of watchlist symbols that are 'active' today based on
+    turnover rate. Called once at market open — dormant stocks are excluded
+    from buy signal scanning for the rest of the day.
+    Falls back to the full watchlist if the API fails or too few symbols pass.
+    """
+    ctx = OpenQuoteContext(host=config.OPEND_HOST, port=config.OPEND_PORT)
+    try:
+        ret, data = ctx.get_market_snapshot(symbols)
+        if ret != RET_OK or data is None or len(data) == 0:
+            log.warning("get_active_watchlist: snapshot failed — using full watchlist")
+            return symbols
+
+        active = []
+        for _, row in data.iterrows():
+            code = row.get("code")
+            turnover_rate = float(row.get("turnover_rate") or 0)
+            if code and turnover_rate >= config.MIN_TURNOVER_RATE:
+                active.append(code)
+
+        if len(active) < 3:
+            log.info("Stock filter: only %d active — falling back to full watchlist", len(active))
+            return symbols
+
+        log.info("Stock filter: %d/%d symbols active (turnover >= %.1f%%)",
+                 len(active), len(symbols), config.MIN_TURNOVER_RATE)
+        return active
+    except Exception as e:
+        log.warning("get_active_watchlist error: %s — using full watchlist", e)
+        return symbols
     finally:
         ctx.close()
 

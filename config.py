@@ -38,6 +38,13 @@ VOLUME_MULTIPLIER = 1.5        # e.g. 1.5x avg = above-average activity required
 # Capital flow filter — only buy if intraday net capital is flowing into the stock
 CAPITAL_FLOW_FILTER = True
 
+# Big money filter — also require super+large order net inflow to be positive
+BIG_MONEY_FILTER = True        # Filters out retail-driven moves with no institutional backing
+
+# Stock filter — pre-screen watchlist at market open, only scan active symbols for buys
+STOCK_FILTER_ENABLED = True
+MIN_TURNOVER_RATE = 0.3        # Minimum daily turnover rate % to be considered active
+
 # OpenD connection
 OPEND_HOST = "127.0.0.1"
 OPEND_PORT = 11111
