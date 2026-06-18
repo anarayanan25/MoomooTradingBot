@@ -6,13 +6,15 @@ An autonomous momentum trading bot for US stocks built on the Moomoo OpenAPI. Ru
 
 ## What It Does
 
-- Scans 18 US stocks every 5 minutes during market hours
+- Scans 17 US stocks every 5 minutes during market hours
 - Detects momentum buy signals: price +2% above the 2-hour rolling low
 - Pre-screens watchlist daily — only scans stocks with active turnover (avoids dormant names)
 - Confirms buys with volume surge (1.5x avg) and institutional capital inflow (big money filter)
 - Automatically places paper buy and sell orders via the Moomoo API
 - Exits positions at +3% take profit or -1.5% stop loss
 - Real-time TP/SL monitoring via quote push subscriptions — fires on every tick, not just every 5 min
+- Force-closes all positions at 3:30pm ET daily — eliminates overnight gap risk
+- 30-minute re-entry cooldown after any stop loss — prevents buying back into a falling stock
 - Tracks daily P&L with a circuit breaker that stops new buys if losses exceed $150/day
 - Persists open positions to disk — survives bot restarts
 - Auto-restarts on crash or Mac reboot via macOS launchd
@@ -115,13 +117,15 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Max concurrent positions | 3 |
 | Position size | $1,000 USD per trade |
 | Trading hours | 10:00am – 3:45pm ET (avoids noisy open/close) |
+| EOD close | Force-close all positions at 3:30pm ET — no overnight holds |
+| SL cooldown | 30-minute re-entry block after any stop loss |
 | Circuit breaker | Stop new buys if daily loss > $150 |
 
 **Buy signal chain:** Stock active (turnover) → Price breakout → Volume surge → Institutional inflow → Buy
 
-**Watchlist (18 symbols):**
+**Watchlist (17 symbols):**
 - Mag 7: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
-- ETFs: SMH, VOO, QQQ, SPCX
+- ETFs: SMH, VOO, QQQ
 - Others: TSM, AVGO, BABA, PANW, MU, MRVL, ANET
 
 ---
@@ -162,6 +166,9 @@ MoomooTradingBot/
 | Stock filter | get_market_snapshot turnover rate, refreshed once per day | Avoids dormant stocks; falls back to full list if < 3 pass |
 | Real-time monitor | Separate OpenQuoteContext with StockQuoteHandlerBase push | Fires TP/SL on every tick; main loop still handles buys |
 | Double-sell guard | mark_selling/unmark_selling with threading.Lock in risk.py | Prevents race between 5-min scan and real-time monitor |
+| EOD close | Force-sell all positions at 15:30 ET via close_all_positions() | Eliminates overnight gap risk entirely |
+| SL cooldown | 30-min block on re-entry after stop loss (record_stop_loss/is_in_cooldown) | Prevents re-buying a falling stock immediately after being stopped out |
+| SPCX removed | Removed SpaceX IPO from watchlist | IPO-stage volatility caused -3.4%, -6.1%, -7.6% overnight gaps — incompatible with strategy |
 | Position persistence | JSON file on disk | Survives bot restarts without stale data |
 | Max positions guard | Pending buys lock + position count | Prevents race condition double-buys |
 
@@ -172,26 +179,25 @@ MoomooTradingBot/
 - Paper trading only — hardcoded, cannot go live without a code change in `executor.py`
 - Max $1,000 per trade, max 3 concurrent positions ($3,000 max deployed)
 - Stop loss at -1.5% per position (max ~$15 loss per trade)
+- 30-minute re-entry cooldown after any stop loss — no buying back into a falling stock
+- EOD close: all positions force-sold at 3:30pm ET — no overnight exposure
 - Circuit breaker: no new buys if daily realized loss exceeds $150
 - Time-of-day filter: only trades 10:00am–3:45pm ET
 
 ---
 
-## Paper Trading Performance (as of Jun 15, 2026)
+## Paper Trading Performance (as of Jun 18, 2026)
 
 | Metric | Value |
 |--------|-------|
 | Starting capital | $1,000,000 (paper) |
-| Account value | $1,001,464.59 |
-| Realized P&L | -$103.72 |
-| Total closed trades | 20 |
-| Wins (take profit) | 8 |
-| Losses (stop loss) | 12 |
-| Win rate | 40% |
-| Avg take profit | +$31.62 |
-| Avg stop loss | -$29.72 |
+| Realized P&L | ~-$16 (recovering) |
+| Total closed trades | ~26 |
+| Win rate | ~40% |
+| Avg take profit | ~+$32 |
+| Avg stop loss | ~-$25 (skewed by gap events) |
 
-> ⚠️ **Note:** Avg stop loss heavily skewed by a single AVGO gap-down event on Jun 15 (-$171.40 / -17.9%). Excluding that outlier: avg stop loss -$15.13, win rate 40%, net realized P&L +$67.68. Overnight gap risk is the primary outstanding issue with the current strategy.
+> ⚠️ **Gap risk incidents:** AVGO Jun 15 (-$171.40 / -17.9%), SPCX Jun 16–18 (multiple -3% to -8% overnight gaps). Root cause: SpaceX IPO stock included in watchlist. SPCX removed Jun 18. EOD close and SL cooldown added to prevent recurrence.
 
 ---
 
@@ -203,7 +209,9 @@ MoomooTradingBot/
 | Double-sell between scan and monitor | `mark_selling`/`unmark_selling` atomic guard in `risk.py` |
 | Bot not auto-restarting on crash | macOS launchd service added (Jun 2026) |
 | launchd blocked from `~/Desktop` | Bot moved to `~/MoomooTradingBot/` |
-| AVGO gap-down -17.9% overnight | Capital distribution + volume filters reduce gap risk entries; end-of-day close deferred |
+| AVGO gap-down -17.9% overnight | EOD close at 3:30pm ET now eliminates overnight exposure |
+| SPCX consecutive overnight gaps (-3.4%, -6.1%, -7.6%) | SPCX (SpaceX IPO) removed from watchlist — IPO volatility incompatible with strategy |
+| Bot re-entering immediately after stop loss | 30-min SL cooldown added — `record_stop_loss`/`is_in_cooldown` in `risk.py` |
 
 ---
 
@@ -212,5 +220,6 @@ MoomooTradingBot/
 - **Phase 5 (complete):** Paper trading validation — 2+ weeks of live trade data collected
 - **Phase 5b (complete):** launchd auto-restart for reliability
 - **Phase 5c (complete):** Signal quality enhancements — volume, capital flow, big money filter, stock filter, real-time monitor
+- **Phase 5d (complete):** Risk management fixes — EOD close, SL cooldown, SPCX removed
 - **Phase 6:** AWS EC2 deployment for 24/7 operation + email alerts via AWS SES
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API
