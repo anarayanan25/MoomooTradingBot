@@ -10,6 +10,10 @@ An autonomous momentum trading bot for US stocks built on the Moomoo OpenAPI. Ru
 - Detects momentum buy signals: price +2% above the 2-hour rolling low
 - Pre-screens watchlist daily — only scans stocks with active turnover (avoids dormant names)
 - Confirms buys with volume surge (1.5x avg) and institutional capital inflow (big money filter)
+- Checks broad market regime (SPY uptrend) before any buy — no trading against the market
+- Filters overbought entries (RSI > 70) and falling knives (RSI < 40) using existing kline data
+- Skips stocks already up >3% or down >2% on the day (momentum exhausted / earnings proxy)
+- Confirms sector trend before buying individual stocks (semis → SMH, tech → QQQ)
 - Automatically places paper buy and sell orders via the Moomoo API
 - Exits positions at +3% take profit or -1.5% stop loss
 - Real-time TP/SL monitoring via quote push subscriptions — fires on every tick, not just every 5 min
@@ -108,6 +112,10 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Buy signal | Price >= +2% above 2hr rolling low |
 | Stock filter | Pre-screen watchlist at market open; only buy-scan symbols with turnover ≥ 0.3% |
 | Volume filter | Current bar volume >= 1.5x avg bar volume (confirms real momentum) |
+| Market regime | SPY must be above its 10-bar rolling avg — no buys in a market downtrend |
+| RSI filter | RSI 40–70 only — avoids overbought entries and falling knives |
+| Gap filter | Skip if stock already up >3% or down >2% today (also catches earnings events) |
+| Sector confirmation | Sector ETF (SMH/QQQ) must also be in uptrend before buying individual stock |
 | Capital flow filter | Net intraday institutional inflow must be positive (total + big money) |
 | Take profit | +3% from entry price |
 | Stop loss | -1.5% from entry price |
@@ -121,7 +129,8 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | SL cooldown | 30-minute re-entry block after any stop loss |
 | Circuit breaker | Stop new buys if daily loss > $150 |
 
-**Buy signal chain:** Stock active (turnover) → Price breakout → Volume surge → Institutional inflow → Buy
+**Buy signal chain (8 stages):**
+Stock active → Price breakout → Volume surge → Market uptrend → RSI in range → No gap → Sector uptrend → Institutional inflow → Buy
 
 **Watchlist (17 symbols):**
 - Mag 7: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
@@ -169,6 +178,11 @@ MoomooTradingBot/
 | EOD close | Force-sell all positions at 15:30 ET via close_all_positions() | Eliminates overnight gap risk entirely |
 | SL cooldown | 30-min block on re-entry after stop loss (record_stop_loss/is_in_cooldown) | Prevents re-buying a falling stock immediately after being stopped out |
 | SPCX removed | Removed SpaceX IPO from watchlist | IPO-stage volatility caused -3.4%, -6.1%, -7.6% overnight gaps — incompatible with strategy |
+| Market regime filter | SPY 10-bar rolling avg check before any buy | Prevents buying individual stocks when the broad market is falling |
+| RSI filter | 5-min RSI computed from existing kline data | Zero extra API calls — reuses price history already in memory |
+| Gap filter | Daily snapshot fetched once at open; checks day's % change | Skips exhausted/weak stocks and doubles as earnings proxy |
+| Sector confirmation | SMH/QQQ rolling avg check before semi/tech buys | Avoids buying a strong stock in a weak sector |
+| Filter ordering | In-memory checks first, API call last | 4 new filters cost nothing; expensive API call only fires if all 7 prior checks pass |
 | Position persistence | JSON file on disk | Survives bot restarts without stale data |
 | Max positions guard | Pending buys lock + position count | Prevents race condition double-buys |
 
@@ -221,5 +235,6 @@ MoomooTradingBot/
 - **Phase 5b (complete):** launchd auto-restart for reliability
 - **Phase 5c (complete):** Signal quality enhancements — volume, capital flow, big money filter, stock filter, real-time monitor
 - **Phase 5d (complete):** Risk management fixes — EOD close, SL cooldown, SPCX removed
+- **Phase 5e (complete):** Advanced signal filters — market regime, RSI, gap/earnings, sector confirmation
 - **Phase 6:** AWS EC2 deployment for 24/7 operation + email alerts via AWS SES
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API
