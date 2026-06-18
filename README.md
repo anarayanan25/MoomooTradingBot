@@ -8,8 +8,11 @@ An autonomous momentum trading bot for US stocks built on the Moomoo OpenAPI. Ru
 
 - Scans 18 US stocks every 5 minutes during market hours
 - Detects momentum buy signals: price +2% above the 2-hour rolling low
+- Pre-screens watchlist daily — only scans stocks with active turnover (avoids dormant names)
+- Confirms buys with volume surge (1.5x avg) and institutional capital inflow (big money filter)
 - Automatically places paper buy and sell orders via the Moomoo API
 - Exits positions at +3% take profit or -1.5% stop loss
+- Real-time TP/SL monitoring via quote push subscriptions — fires on every tick, not just every 5 min
 - Tracks daily P&L with a circuit breaker that stops new buys if losses exceed $150/day
 - Persists open positions to disk — survives bot restarts
 - Auto-restarts on crash or Mac reboot via macOS launchd
@@ -101,10 +104,12 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Parameter | Value |
 |-----------|-------|
 | Buy signal | Price >= +2% above 2hr rolling low |
+| Stock filter | Pre-screen watchlist at market open; only buy-scan symbols with turnover ≥ 0.3% |
 | Volume filter | Current bar volume >= 1.5x avg bar volume (confirms real momentum) |
-| Capital flow filter | Net intraday institutional inflow must be positive |
+| Capital flow filter | Net intraday institutional inflow must be positive (total + big money) |
 | Take profit | +3% from entry price |
 | Stop loss | -1.5% from entry price |
+| TP/SL monitoring | Real-time push (every tick) via StockQuoteHandlerBase, not just 5-min scan |
 | Risk/reward | 2:1 |
 | Scan interval | Every 5 minutes |
 | Max concurrent positions | 3 |
@@ -112,7 +117,7 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Trading hours | 10:00am – 3:45pm ET (avoids noisy open/close) |
 | Circuit breaker | Stop new buys if daily loss > $150 |
 
-**Buy signal chain:** Price breakout → Volume surge → Institutional inflow → Buy
+**Buy signal chain:** Stock active (turnover) → Price breakout → Volume surge → Institutional inflow → Buy
 
 **Watchlist (18 symbols):**
 - Mag 7: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
@@ -130,7 +135,8 @@ MoomooTradingBot/
 ├── market_data.py             # Live quote fetching, market open detection, kline preload
 ├── strategy.py                # Buy/sell signal logic, rolling 2hr price history
 ├── executor.py                # Order placement (hardcoded SIMULATE — paper only)
-├── risk.py                    # Position tracker, circuit breaker, daily P&L
+├── risk.py                    # Position tracker, circuit breaker, daily P&L, sell guard
+├── monitor.py                 # Real-time position monitor (quote push subscriptions)
 ├── start_bot.sh               # Shell wrapper for launchd auto-restart
 ├── com.anand.moomoobot.plist  # macOS launchd service definition
 └── logs/
@@ -152,6 +158,10 @@ MoomooTradingBot/
 | Volume history | Kline preload + per-bar delta from cumulative day volume | Tracks actual bar activity without extra API calls |
 | Capital flow timing | Only called after price + volume signals pass | Minimises API calls — only fires on real candidates |
 | Capital flow fail-open | Returns True if API errors | Never blocks a trade due to a connectivity issue |
+| Big money filter | Checks super+large order net inflow via get_capital_distribution | Filters retail-driven moves with no institutional backing |
+| Stock filter | get_market_snapshot turnover rate, refreshed once per day | Avoids dormant stocks; falls back to full list if < 3 pass |
+| Real-time monitor | Separate OpenQuoteContext with StockQuoteHandlerBase push | Fires TP/SL on every tick; main loop still handles buys |
+| Double-sell guard | mark_selling/unmark_selling with threading.Lock in risk.py | Prevents race between 5-min scan and real-time monitor |
 | Position persistence | JSON file on disk | Survives bot restarts without stale data |
 | Max positions guard | Pending buys lock + position count | Prevents race condition double-buys |
 
@@ -190,14 +200,17 @@ MoomooTradingBot/
 | Issue | Fix Applied |
 |-------|-------------|
 | Race condition causing double buys | Pending buys lock in `risk.py` + 300s scan throttle in `main.py` |
+| Double-sell between scan and monitor | `mark_selling`/`unmark_selling` atomic guard in `risk.py` |
 | Bot not auto-restarting on crash | macOS launchd service added (Jun 2026) |
 | launchd blocked from `~/Desktop` | Bot moved to `~/MoomooTradingBot/` |
+| AVGO gap-down -17.9% overnight | Capital distribution + volume filters reduce gap risk entries; end-of-day close deferred |
 
 ---
 
 ## Roadmap
 
 - **Phase 5 (complete):** Paper trading validation — 2+ weeks of live trade data collected
-- **Phase 5b (current):** launchd auto-restart for reliability
+- **Phase 5b (complete):** launchd auto-restart for reliability
+- **Phase 5c (complete):** Signal quality enhancements — volume, capital flow, big money filter, stock filter, real-time monitor
 - **Phase 6:** AWS EC2 deployment for 24/7 operation + email alerts via AWS SES
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API
