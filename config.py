@@ -52,6 +52,36 @@ STOP_LOSS_COOLDOWN_SEC = 1800  # 30 minutes
 EOD_CLOSE_ENABLED = True
 EOD_CLOSE_TIME = "15:30"       # Close positions at 3:30pm ET (15min before trading window ends)
 
+# Market regime filter — only buy when the broad market (SPY) is in an uptrend
+MARKET_REGIME_FILTER = True
+MARKET_REGIME_SYMBOL = "US.SPY"  # Tracked separately from watchlist
+
+# RSI filter — avoid overbought entries and falling-knife entries
+RSI_FILTER = True
+RSI_PERIOD = 14      # Standard RSI lookback (uses existing 5-min kline data — no extra API calls)
+RSI_MIN    = 40      # Below this = falling knife, skip
+RSI_MAX    = 70      # Above this = overbought, momentum likely exhausted, skip
+
+# Gap filter — skip stocks that have already moved too far today
+# Also serves as earnings proxy: earnings gaps show up as large day changes
+GAP_FILTER = True
+GAP_MAX_UP_PCT   = 3.0   # Already up >3% today → momentum likely exhausted
+GAP_MAX_DOWN_PCT = 2.0   # Already down >2% today → stock is weak, don't buy
+
+# Sector confirmation — require the stock's sector ETF to also be in an uptrend
+SECTOR_FILTER = True
+SECTOR_PROXIES = {
+    # Semiconductors → SMH (already on watchlist)
+    "US.NVDA": "US.SMH", "US.MU": "US.SMH", "US.AVGO": "US.SMH",
+    "US.MRVL": "US.SMH", "US.TSM": "US.SMH",
+    # Broad tech → QQQ (already on watchlist)
+    "US.AAPL": "US.QQQ", "US.MSFT": "US.QQQ", "US.GOOGL": "US.QQQ",
+    "US.AMZN": "US.QQQ", "US.META": "US.QQQ", "US.TSLA": "US.QQQ",
+    "US.PANW": "US.QQQ", "US.ANET": "US.QQQ", "US.BABA": "US.QQQ",
+    # ETFs are their own sector — no proxy check needed
+    "US.SMH": None, "US.VOO": None, "US.QQQ": None,
+}
+
 # OpenD connection
 OPEND_HOST = "127.0.0.1"
 OPEND_PORT = 11111

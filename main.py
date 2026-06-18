@@ -49,8 +49,9 @@ log = logging.getLogger(__name__)
 _running = True
 _ET = ZoneInfo("America/New_York")
 
-# Active watchlist — refreshed daily at market open
+# Active watchlist and daily snapshot data — refreshed once per trading day
 _active_watchlist: list[str] = list(config.WATCHLIST)
+_day_changes: dict[str, float] = {}
 _last_filter_date: date | None = None
 
 def _shutdown(sig, frame):
@@ -95,7 +96,7 @@ def close_all_positions(reason: str = "eod_close"):
 
 def scan():
     """One full scan cycle: fetch quotes, check signals, execute orders."""
-    global _active_watchlist, _last_filter_date
+    global _active_watchlist, _day_changes, _last_filter_date
 
     # EOD: force-close all positions before overnight gap risk
     if config.EOD_CLOSE_ENABLED:
@@ -104,21 +105,30 @@ def scan():
             close_all_positions()
             return
 
-    # Refresh active watchlist once per trading day
-    if config.STOCK_FILTER_ENABLED:
-        today = date.today()
-        if _last_filter_date != today:
+    # Refresh daily snapshot data once per trading day
+    today = date.today()
+    if _last_filter_date != today:
+        if config.STOCK_FILTER_ENABLED:
             log.info("Stock filter: refreshing active watchlist for %s", today)
             _active_watchlist = market_data.get_active_watchlist(config.WATCHLIST)
-            _last_filter_date = today
+        if config.GAP_FILTER:
+            _day_changes = market_data.get_day_changes(config.WATCHLIST)
+        _last_filter_date = today
 
     log.info("--- Scan started | positions=%d/%d | active_symbols=%d ---",
              risk.position_count(), config.MAX_POSITIONS, len(_active_watchlist))
 
-    prices, volumes = market_data.get_quotes(config.WATCHLIST)
+    # Fetch quotes for watchlist + regime symbol (SPY tracked separately for market trend)
+    regime_sym = config.MARKET_REGIME_SYMBOL if config.MARKET_REGIME_FILTER else None
+    fetch_symbols = list(dict.fromkeys(config.WATCHLIST + ([regime_sym] if regime_sym else [])))
+    prices, volumes = market_data.get_quotes(fetch_symbols)
     if not prices:
         log.warning("No quotes returned — skipping scan.")
         return
+
+    # Record regime symbol price history for trend check
+    if regime_sym and regime_sym in prices:
+        strategy.record_price(regime_sym, prices[regime_sym])
 
     log.info("Quotes received: %d symbols | sample: %s",
              len(prices),
@@ -170,7 +180,40 @@ def scan():
                 and not risk.is_in_cooldown(symbol)
                 and strategy.check_buy_signal(symbol, price)):
 
-            # Capital flow filter — skip if institutional money is flowing out
+            # Market regime filter — skip all buys when broad market is in downtrend
+            if config.MARKET_REGIME_FILTER and not strategy.is_above_rolling_avg(config.MARKET_REGIME_SYMBOL):
+                log.info("REGIME FILTER — SPY below 10-bar avg, skipping %s", symbol)
+                continue
+
+            # RSI filter — avoid overbought entries and falling knives
+            if config.RSI_FILTER:
+                rsi = strategy.get_rsi(symbol)
+                if rsi is not None:
+                    if rsi > config.RSI_MAX:
+                        log.info("RSI FILTER %s | rsi=%.1f > %.0f (overbought) — skipping", symbol, rsi, config.RSI_MAX)
+                        continue
+                    if rsi < config.RSI_MIN:
+                        log.info("RSI FILTER %s | rsi=%.1f < %.0f (falling knife) — skipping", symbol, rsi, config.RSI_MIN)
+                        continue
+
+            # Gap filter — skip stocks that have already moved too far today
+            if config.GAP_FILTER and _day_changes:
+                day_chg = _day_changes.get(symbol, 0.0)
+                if day_chg > config.GAP_MAX_UP_PCT:
+                    log.info("GAP FILTER %s | day_chg=+%.1f%% > +%.1f%% (exhausted) — skipping", symbol, day_chg, config.GAP_MAX_UP_PCT)
+                    continue
+                if day_chg < -config.GAP_MAX_DOWN_PCT:
+                    log.info("GAP FILTER %s | day_chg=%.1f%% < -%.1f%% (weak) — skipping", symbol, day_chg, config.GAP_MAX_DOWN_PCT)
+                    continue
+
+            # Sector confirmation — stock's sector ETF must also be trending up
+            if config.SECTOR_FILTER:
+                proxy = config.SECTOR_PROXIES.get(symbol)
+                if proxy and not strategy.is_above_rolling_avg(proxy):
+                    log.info("SECTOR FILTER %s | proxy=%s below rolling avg — skipping", symbol, proxy)
+                    continue
+
+            # Capital flow filter — skip if institutional money is flowing out (API call — last)
             if config.CAPITAL_FLOW_FILTER and not market_data.is_capital_flowing_in(symbol):
                 log.info("CAPITAL FLOW FILTER %s — net outflow detected, skipping buy", symbol)
                 continue
@@ -212,9 +255,13 @@ def main():
     _last_scan_time = 0.0  # monotonic timestamp of last completed scan
 
     # Pre-populate rolling price and volume history from historical 5-min candles
-    # so buy signals can fire from the first scan instead of after 2 hours
+    # so buy signals can fire from the first scan instead of after 2 hours.
+    # Also preload SPY for the market regime filter.
+    preload_symbols = list(dict.fromkeys(
+        config.WATCHLIST + ([config.MARKET_REGIME_SYMBOL] if config.MARKET_REGIME_FILTER else [])
+    ))
     log.info("Pre-loading 2hr price history from historical candles...")
-    history = market_data.preload_price_history(config.WATCHLIST)
+    history = market_data.preload_price_history(preload_symbols)
     for symbol, data in history.items():
         for price in data["prices"]:
             strategy.record_price(symbol, price)

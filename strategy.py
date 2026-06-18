@@ -52,6 +52,43 @@ def record_volume(symbol: str, cumulative_volume: float):
     _volume_history[symbol].append(cumulative_volume - prev)
 
 
+def get_rsi(symbol: str) -> float | None:
+    """
+    Compute RSI from the rolling 5-min price history.
+    Uses existing kline data — no extra API calls.
+    Returns None if insufficient history (fails open).
+    """
+    prices = list(_price_history.get(symbol, []))
+    period = config.RSI_PERIOD
+    if len(prices) < period + 1:
+        return None
+    prices = prices[-(period + 1):]
+    gains, losses = [], []
+    for i in range(1, len(prices)):
+        delta = prices[i] - prices[i - 1]
+        gains.append(max(delta, 0))
+        losses.append(max(-delta, 0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def is_above_rolling_avg(symbol: str, period: int = 10) -> bool:
+    """
+    Returns True if the symbol's latest price is above its N-bar rolling average.
+    Used for market regime check (SPY) and sector confirmation (SMH, QQQ).
+    Fails open — returns True if insufficient data so it never blocks when uninitialized.
+    """
+    prices = list(_price_history.get(symbol, []))
+    if len(prices) < period:
+        return True  # Not enough data yet — don't block trades
+    avg = sum(prices[-period:]) / period
+    return prices[-1] > avg
+
+
 def check_buy_signal(symbol: str, current_price: float) -> bool:
     """
     Returns True if:

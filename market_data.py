@@ -173,6 +173,35 @@ def get_active_watchlist(symbols: list[str]) -> list[str]:
         ctx.close()
 
 
+def get_day_changes(symbols: list[str]) -> dict[str, float]:
+    """
+    Fetch today's % change vs previous close for each symbol via market snapshot.
+    Used for:
+      - Gap filter: skip stocks already up >3% or down >2% (momentum exhausted / stock weak)
+      - Earnings proxy: large day changes often indicate earnings/news events
+    Fails open — returns {} on any API error so it never blocks trades.
+    """
+    ctx = OpenQuoteContext(host=config.OPEND_HOST, port=config.OPEND_PORT)
+    try:
+        ret, data = ctx.get_market_snapshot(symbols)
+        if ret != RET_OK or data is None or len(data) == 0:
+            log.warning("get_day_changes: snapshot failed — skipping gap filter")
+            return {}
+        changes = {}
+        for _, row in data.iterrows():
+            code = row.get("code")
+            change_rate = row.get("change_rate")
+            if code and change_rate not in (None, "", "N/A"):
+                changes[code] = float(change_rate)
+        log.info("Day changes fetched for %d symbols", len(changes))
+        return changes
+    except Exception as e:
+        log.warning("get_day_changes error: %s — skipping gap filter", e)
+        return {}
+    finally:
+        ctx.close()
+
+
 def is_trading_hours() -> bool:
     """
     Returns True if current ET time is within the allowed trading window.
