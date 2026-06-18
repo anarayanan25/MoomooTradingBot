@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import date
 import config
 
@@ -22,6 +23,9 @@ _pending_buys: set = set()
 # Sell guard — prevents double-sells between main scan loop and real-time monitor
 _being_sold: set = set()
 _sell_lock = threading.Lock()
+
+# Stop loss cooldown — prevents re-entry for STOP_LOSS_COOLDOWN_SEC after a stop loss
+_stop_loss_times: dict[str, float] = {}
 
 # Circuit breaker — daily realized P&L tracking
 _daily_pnl_usd: float = 0.0
@@ -110,6 +114,24 @@ def unmark_selling(symbol: str):
     """Release the sell claim after the sell is complete or failed."""
     with _sell_lock:
         _being_sold.discard(symbol)
+
+
+def record_stop_loss(symbol: str):
+    """Start the re-entry cooldown clock after a stop loss."""
+    _stop_loss_times[symbol] = time.monotonic()
+    log.info("SL cooldown started for %s — no re-entry for %ds", symbol, config.STOP_LOSS_COOLDOWN_SEC)
+
+
+def is_in_cooldown(symbol: str) -> bool:
+    """Returns True if symbol is still within the stop loss re-entry cooldown."""
+    t = _stop_loss_times.get(symbol)
+    if t is None:
+        return False
+    remaining = config.STOP_LOSS_COOLDOWN_SEC - (time.monotonic() - t)
+    if remaining > 0:
+        log.info("SL cooldown active for %s — %.0fs remaining", symbol, remaining)
+        return True
+    return False
 
 
 def get_position(symbol: str) -> dict | None:

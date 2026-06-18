@@ -62,6 +62,8 @@ class _QuoteHandler(StockQuoteHandlerBase):
                             symbol, reason, position["entry_price"], price, pnl_pct, risk.daily_pnl(),
                         )
                         risk.remove_position(symbol)
+                        if reason == "stop_loss":
+                            risk.record_stop_loss(symbol)
                 finally:
                     risk.unmark_selling(symbol)
 

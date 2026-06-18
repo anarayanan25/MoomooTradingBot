@@ -7,7 +7,7 @@ WATCHLIST = [
     # Mag 7
     "US.AAPL", "US.MSFT", "US.GOOGL", "US.AMZN", "US.NVDA", "US.META", "US.TSLA",
     # ETFs
-    "US.SMH", "US.VOO", "US.QQQ", "US.SPCX",
+    "US.SMH", "US.VOO", "US.QQQ",
     # Others
     "US.TSM", "US.AVGO", "US.BABA", "US.PANW", "US.MU", "US.MRVL", "US.ANET",
 ]
@@ -44,6 +44,13 @@ BIG_MONEY_FILTER = True        # Filters out retail-driven moves with no institu
 # Stock filter — pre-screen watchlist at market open, only scan active symbols for buys
 STOCK_FILTER_ENABLED = True
 MIN_TURNOVER_RATE = 0.3        # Minimum daily turnover rate % to be considered active
+
+# Stop loss cooldown — prevent re-entering a symbol for this long after a stop loss
+STOP_LOSS_COOLDOWN_SEC = 1800  # 30 minutes
+
+# End-of-day close — force-close all open positions before overnight gap risk
+EOD_CLOSE_ENABLED = True
+EOD_CLOSE_TIME = "15:30"       # Close positions at 3:30pm ET (15min before trading window ends)
 
 # OpenD connection
 OPEND_HOST = "127.0.0.1"

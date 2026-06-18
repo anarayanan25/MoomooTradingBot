@@ -17,6 +17,7 @@ import time
 import signal
 import sys
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 
 import config
 import market_data
@@ -46,6 +47,7 @@ log = logging.getLogger(__name__)
 # ============================================================
 
 _running = True
+_ET = ZoneInfo("America/New_York")
 
 # Active watchlist — refreshed daily at market open
 _active_watchlist: list[str] = list(config.WATCHLIST)
@@ -63,9 +65,44 @@ signal.signal(signal.SIGTERM, _shutdown)
 # Core scan loop
 # ============================================================
 
+def close_all_positions(reason: str = "eod_close"):
+    """Force-close all open positions (called at EOD to avoid overnight gap risk)."""
+    symbols = risk.open_symbols()
+    if not symbols:
+        return
+    log.info("EOD close: closing %d open position(s)", len(symbols))
+    prices, _ = market_data.get_quotes(symbols)
+    for symbol in symbols:
+        price = prices.get(symbol)
+        position = risk.get_position(symbol)
+        if not price or not position:
+            continue
+        if risk.mark_selling(symbol):
+            try:
+                order_id = executor.place_sell(symbol, position["quantity"], price, reason)
+                if order_id:
+                    pnl_pct = (price - position["entry_price"]) / position["entry_price"] * 100
+                    risk.record_trade_pnl(position["entry_price"], price, position["quantity"])
+                    log.info(
+                        "EOD CLOSED %s | entry=%.4f | exit=%.4f | pnl=%.2f%% | daily_pnl=$%.2f",
+                        symbol, position["entry_price"], price, pnl_pct, risk.daily_pnl(),
+                    )
+                    risk.remove_position(symbol)
+                    monitor.on_position_closed(symbol)
+            finally:
+                risk.unmark_selling(symbol)
+
+
 def scan():
     """One full scan cycle: fetch quotes, check signals, execute orders."""
     global _active_watchlist, _last_filter_date
+
+    # EOD: force-close all positions before overnight gap risk
+    if config.EOD_CLOSE_ENABLED:
+        now_et = datetime.now(_ET).strftime("%H:%M")
+        if now_et >= config.EOD_CLOSE_TIME:
+            close_all_positions()
+            return
 
     # Refresh active watchlist once per trading day
     if config.STOCK_FILTER_ENABLED:
@@ -118,6 +155,8 @@ def scan():
                             )
                             risk.remove_position(symbol)
                             monitor.on_position_closed(symbol)
+                            if reason == "stop_loss":
+                                risk.record_stop_loss(symbol)
                     finally:
                         risk.unmark_selling(symbol)
             continue  # Don't also check buy signal for held stocks
@@ -128,6 +167,7 @@ def scan():
 
         if (not risk.is_circuit_breaker_triggered()
                 and risk.can_buy(symbol)
+                and not risk.is_in_cooldown(symbol)
                 and strategy.check_buy_signal(symbol, price)):
 
             # Capital flow filter — skip if institutional money is flowing out
