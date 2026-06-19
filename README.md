@@ -236,5 +236,5 @@ MoomooTradingBot/
 - **Phase 5c (complete):** Signal quality enhancements — volume, capital flow, big money filter, stock filter, real-time monitor
 - **Phase 5d (complete):** Risk management fixes — EOD close, SL cooldown, SPCX removed
 - **Phase 5e (complete):** Advanced signal filters — market regime, RSI, gap/earnings, sector confirmation
-- **Phase 6:** AWS EC2 deployment for 24/7 operation + email alerts via AWS SES
+- **Phase 6:** AWS EC2 headless deployment (Ubuntu + Command Line OpenD) for 24/7 operation + email alerts via AWS SES. Requires $25,000+ live account to avoid PDT restrictions.
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API
