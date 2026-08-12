@@ -108,6 +108,8 @@ def scan():
     # Refresh daily snapshot data once per trading day
     today = date.today()
     if _last_filter_date != today:
+        all_tracked = list(dict.fromkeys(config.WATCHLIST + [config.MARKET_REGIME_SYMBOL]))
+        strategy.reset_daily_history(all_tracked)
         if config.STOCK_FILTER_ENABLED:
             log.info("Stock filter: refreshing active watchlist for %s", today)
             _active_watchlist = market_data.get_active_watchlist(config.WATCHLIST)
@@ -180,10 +182,16 @@ def scan():
                 and not risk.is_in_cooldown(symbol)
                 and strategy.check_buy_signal(symbol, price)):
 
-            # Market regime filter — skip all buys when broad market is in downtrend
+            # Market regime filter — skip all buys when broad market is in meaningful downtrend
             if config.MARKET_REGIME_FILTER and not strategy.is_above_rolling_avg(config.MARKET_REGIME_SYMBOL):
-                log.info("REGIME FILTER — SPY below 10-bar avg, skipping %s", symbol)
-                continue
+                spy_price, spy_avg = strategy.get_rolling_avg_info(config.MARKET_REGIME_SYMBOL)
+                gap_pct = ((spy_price - spy_avg) / spy_avg * 100) if spy_avg else 0
+                if gap_pct <= config.MARKET_REGIME_MIN_GAP_PCT:
+                    log.info("REGIME FILTER — SPY $%.2f below 10-bar avg $%.2f (gap: %.2f%%), skipping %s",
+                             spy_price, spy_avg, gap_pct, symbol)
+                    continue
+                log.info("REGIME FILTER PASS — SPY $%.2f gap %.2f%% within threshold (%.2f%%), allowing %s",
+                         spy_price, gap_pct, config.MARKET_REGIME_MIN_GAP_PCT, symbol)
 
             # RSI filter — avoid overbought entries and falling knives
             if config.RSI_FILTER:
@@ -270,6 +278,13 @@ def main():
     log.info("Price history ready for %d symbols", len(history))
 
     while _running:
+        # EOD close check — runs every loop tick (every 1s) independent of scan timing.
+        # Prevents positions being held overnight if a scan misses the 15:30 window.
+        if config.EOD_CLOSE_ENABLED and market_data.is_market_open():
+            now_et = datetime.now(_ET).strftime("%H:%M")
+            if now_et >= config.EOD_CLOSE_TIME:
+                close_all_positions()
+
         # Time-based throttle — never scan more often than SCAN_INTERVAL_SEC regardless of
         # market state flickering or any other loop restarts
         now = time.monotonic()

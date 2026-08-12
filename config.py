@@ -55,12 +55,13 @@ EOD_CLOSE_TIME = "15:30"       # Close positions at 3:30pm ET (15min before trad
 # Market regime filter — only buy when the broad market (SPY) is in an uptrend
 MARKET_REGIME_FILTER = True
 MARKET_REGIME_SYMBOL = "US.SPY"  # Tracked separately from watchlist
+MARKET_REGIME_MIN_GAP_PCT = -0.5  # Only block if SPY is more than 0.5% below its rolling avg (blocks <0.5% noise)
 
 # RSI filter — avoid overbought entries and falling-knife entries
 RSI_FILTER = True
 RSI_PERIOD = 14      # Standard RSI lookback (uses existing 5-min kline data — no extra API calls)
 RSI_MIN    = 40      # Below this = falling knife, skip
-RSI_MAX    = 70      # Above this = overbought, momentum likely exhausted, skip
+RSI_MAX    = 80      # Above this = overbought, skip (raised from 70 → 80 Jul 9: RSI 70 blocked entire rally)
 
 # Gap filter — skip stocks that have already moved too far today
 # Also serves as earnings proxy: earnings gaps show up as large day changes

@@ -19,6 +19,19 @@ _volume_history: dict[str, deque] = {}
 _last_cumulative_volume: dict[str, float] = {}
 
 
+def reset_daily_history(symbols: list[str]):
+    """
+    Clear price and volume history for all symbols at the start of each trading day.
+    Without this, stale bars from previous days inflate avg_vol and anchor the 2hr_low
+    to multi-day lows instead of the actual intraday low.
+    """
+    for symbol in symbols:
+        _price_history.pop(symbol, None)
+        _volume_history.pop(symbol, None)
+        _last_cumulative_volume.pop(symbol, None)
+    log.info("Daily history reset for %d symbols", len(symbols))
+
+
 def record_price(symbol: str, price: float):
     """Add the latest price to the rolling window for this symbol."""
     if symbol not in _price_history:
@@ -84,9 +97,18 @@ def is_above_rolling_avg(symbol: str, period: int = 10) -> bool:
     """
     prices = list(_price_history.get(symbol, []))
     if len(prices) < period:
-        return True  # Not enough data yet — don't block trades
+        return True
     avg = sum(prices[-period:]) / period
     return prices[-1] > avg
+
+
+def get_rolling_avg_info(symbol: str, period: int = 10) -> tuple:
+    """Returns (current_price, rolling_avg) for logging. Returns (None, None) if insufficient data."""
+    prices = list(_price_history.get(symbol, []))
+    if len(prices) < period:
+        return None, None
+    avg = sum(prices[-period:]) / period
+    return prices[-1], avg
 
 
 def check_buy_signal(symbol: str, current_price: float) -> bool:

@@ -11,7 +11,7 @@ An autonomous momentum trading bot for US stocks built on the Moomoo OpenAPI. Ru
 - Pre-screens watchlist daily — only scans stocks with active turnover (avoids dormant names)
 - Confirms buys with volume surge (1.5x avg) and institutional capital inflow (big money filter)
 - Checks broad market regime (SPY uptrend) before any buy — no trading against the market
-- Filters overbought entries (RSI > 70) and falling knives (RSI < 40) using existing kline data
+- Filters overbought entries (RSI > 80) and falling knives (RSI < 40) using existing kline data
 - Skips stocks already up >3% or down >2% on the day (momentum exhausted / earnings proxy)
 - Confirms sector trend before buying individual stocks (semis → SMH, tech → QQQ)
 - Automatically places paper buy and sell orders via the Moomoo API
@@ -112,8 +112,8 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Buy signal | Price >= +2% above 2hr rolling low |
 | Stock filter | Pre-screen watchlist at market open; only buy-scan symbols with turnover ≥ 0.3% |
 | Volume filter | Current bar volume >= 1.5x avg bar volume (confirms real momentum) |
-| Market regime | SPY must be above its 10-bar rolling avg — no buys in a market downtrend |
-| RSI filter | RSI 40–70 only — avoids overbought entries and falling knives |
+| Market regime | SPY must be above its 10-bar rolling avg (tolerance: -0.5%) — no buys in a market downtrend |
+| RSI filter | RSI 40–80 only — avoids overbought entries and falling knives |
 | Gap filter | Skip if stock already up >3% or down >2% today (also catches earnings events) |
 | Sector confirmation | Sector ETF (SMH/QQQ) must also be in uptrend before buying individual stock |
 | Capital flow filter | Net intraday institutional inflow must be positive (total + big money) |
@@ -175,7 +175,8 @@ MoomooTradingBot/
 | Stock filter | get_market_snapshot turnover rate, refreshed once per day | Avoids dormant stocks; falls back to full list if < 3 pass |
 | Real-time monitor | Separate OpenQuoteContext with StockQuoteHandlerBase push | Fires TP/SL on every tick; main loop still handles buys |
 | Double-sell guard | mark_selling/unmark_selling with threading.Lock in risk.py | Prevents race between 5-min scan and real-time monitor |
-| EOD close | Force-sell all positions at 15:30 ET via close_all_positions() | Eliminates overnight gap risk entirely |
+| EOD close | Force-sell all positions at 15:30 ET via close_all_positions() | Eliminates overnight gap risk entirely; also runs every loop tick to prevent missing the window |
+| Daily history reset | reset_daily_history() clears price + volume history each morning | Prevents stale bars from prior days inflating avg_vol and anchoring 2hr_low to multi-day lows |
 | SL cooldown | 30-min block on re-entry after stop loss (record_stop_loss/is_in_cooldown) | Prevents re-buying a falling stock immediately after being stopped out |
 | SPCX removed | Removed SpaceX IPO from watchlist | IPO-stage volatility caused -3.4%, -6.1%, -7.6% overnight gaps — incompatible with strategy |
 | Market regime filter | SPY 10-bar rolling avg check before any buy | Prevents buying individual stocks when the broad market is falling |
@@ -226,6 +227,10 @@ MoomooTradingBot/
 | AVGO gap-down -17.9% overnight | EOD close at 3:30pm ET now eliminates overnight exposure |
 | SPCX consecutive overnight gaps (-3.4%, -6.1%, -7.6%) | SPCX (SpaceX IPO) removed from watchlist — IPO volatility incompatible with strategy |
 | Bot re-entering immediately after stop loss | 30-min SL cooldown added — `record_stop_loss`/`is_in_cooldown` in `risk.py` |
+| Stale `avg_vol` blocking volume filter | `reset_daily_history()` clears volume history each morning — prior days' bars were inflating avg_vol |
+| Stale 2hr_low spanning multiple days | `reset_daily_history()` clears price history each morning — 24-bar deque was holding weeks of data at 1–3 scans/day |
+| Regime filter too aggressive on small SPY dips | `MARKET_REGIME_MIN_GAP_PCT = -0.5` added — only blocks if SPY is >0.5% below avg |
+| RSI 70 ceiling blocking entire rallies | `RSI_MAX` raised from 70 → 80 (Jul 9, 2026) |
 
 ---
 
@@ -236,5 +241,6 @@ MoomooTradingBot/
 - **Phase 5c (complete):** Signal quality enhancements — volume, capital flow, big money filter, stock filter, real-time monitor
 - **Phase 5d (complete):** Risk management fixes — EOD close, SL cooldown, SPCX removed
 - **Phase 5e (complete):** Advanced signal filters — market regime, RSI, gap/earnings, sector confirmation
+- **Phase 5f (complete):** Data reset & filter tuning — daily history reset, RSI_MAX 70→80, regime filter tolerance, enhanced logging
 - **Phase 6:** AWS EC2 headless deployment (Ubuntu + Command Line OpenD) for 24/7 operation + email alerts via AWS SES. PDT $25K rule eliminated Jun 4, 2026 — confirmed by Moomoo; standard $2,000 margin account sufficient, unlimited day trades.
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API
