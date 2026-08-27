@@ -218,8 +218,18 @@ def scan():
             if config.SECTOR_FILTER:
                 proxy = config.SECTOR_PROXIES.get(symbol)
                 if proxy and not strategy.is_above_rolling_avg(proxy):
-                    log.info("SECTOR FILTER %s | proxy=%s below rolling avg — skipping", symbol, proxy)
-                    continue
+                    proxy_price, proxy_avg = strategy.get_rolling_avg_info(proxy)
+                    if proxy_price is not None and proxy_avg is not None:
+                        gap_pct = (proxy_price - proxy_avg) / proxy_avg * 100
+                        if gap_pct <= config.SECTOR_FILTER_MIN_GAP_PCT:
+                            log.info("SECTOR FILTER %s | proxy=%s $%.2f below avg $%.2f (gap: %.2f%%) — skipping",
+                                     symbol, proxy, proxy_price, proxy_avg, gap_pct)
+                            continue
+                        log.info("SECTOR FILTER PASS %s | proxy=%s $%.2f gap %.2f%% within threshold (%.2f%%), allowing",
+                                 symbol, proxy, proxy_price, gap_pct, config.SECTOR_FILTER_MIN_GAP_PCT)
+                    else:
+                        log.info("SECTOR FILTER %s | proxy=%s below rolling avg — skipping", symbol, proxy)
+                        continue
 
             # Capital flow filter — skip if institutional money is flowing out (API call — last)
             if config.CAPITAL_FLOW_FILTER and not market_data.is_capital_flowing_in(symbol):

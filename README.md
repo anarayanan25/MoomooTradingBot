@@ -111,11 +111,12 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 |-----------|-------|
 | Buy signal | Price >= +2% above 2hr rolling low |
 | Stock filter | Pre-screen watchlist at market open; only buy-scan symbols with turnover ≥ 0.3% |
-| Volume filter | Current bar volume >= 1.5x avg bar volume (confirms real momentum) |
-| Market regime | SPY must be above its 10-bar rolling avg (tolerance: -0.5%) — no buys in a market downtrend |
+| Volume filter | Current bar volume >= 1.2x avg bar volume (confirms real momentum) |
+| Market regime | SPY must be above its 10-bar rolling avg (tolerance: -0.5%) — no buys in a meaningful market downtrend |
+| Sector confirmation | Sector ETF (SMH/QQQ) must be in uptrend (tolerance: -0.5%) before buying individual stock |
 | RSI filter | RSI 40–80 only — avoids overbought entries and falling knives |
 | Gap filter | Skip if stock already up >3% or down >2% today (also catches earnings events) |
-| Sector confirmation | Sector ETF (SMH/QQQ) must also be in uptrend before buying individual stock |
+| Sector ETF proxy | SMH for semis (MU, MRVL, NVDA, AVGO, TSM); QQQ for broad tech (AAPL, MSFT, TSLA, etc.) |
 | Capital flow filter | Net intraday institutional inflow must be positive (total + big money) |
 | Take profit | +3% from entry price |
 | Stop loss | -1.5% from entry price |
@@ -177,6 +178,8 @@ MoomooTradingBot/
 | Double-sell guard | mark_selling/unmark_selling with threading.Lock in risk.py | Prevents race between 5-min scan and real-time monitor |
 | EOD close | Force-sell all positions at 15:30 ET via close_all_positions() | Eliminates overnight gap risk entirely; also runs every loop tick to prevent missing the window |
 | Daily history reset | reset_daily_history() clears price + volume history each morning | Prevents stale bars from prior days inflating avg_vol and anchoring 2hr_low to multi-day lows |
+| Volume multiplier 1.5x → 1.2x | Lowered Aug 26, 2026 | 1.5x caused 7 consecutive no-trade days in low-volatility tape; 1.2x still filters genuinely thin bars |
+| Sector filter tolerance | SECTOR_FILTER_MIN_GAP_PCT = -0.5 | SMH/QQQ trivially below avg (-0.1% to -0.4%) blocked all semi/tech buys for 7+ days; mirrors regime filter fix |
 | SL cooldown | 30-min block on re-entry after stop loss (record_stop_loss/is_in_cooldown) | Prevents re-buying a falling stock immediately after being stopped out |
 | SPCX removed | Removed SpaceX IPO from watchlist | IPO-stage volatility caused -3.4%, -6.1%, -7.6% overnight gaps — incompatible with strategy |
 | Market regime filter | SPY 10-bar rolling avg check before any buy | Prevents buying individual stocks when the broad market is falling |
@@ -242,5 +245,6 @@ MoomooTradingBot/
 - **Phase 5d (complete):** Risk management fixes — EOD close, SL cooldown, SPCX removed
 - **Phase 5e (complete):** Advanced signal filters — market regime, RSI, gap/earnings, sector confirmation
 - **Phase 5f (complete):** Data reset & filter tuning — daily history reset, RSI_MAX 70→80, regime filter tolerance, enhanced logging
+- **Phase 5g (complete):** Filter tuning round 2 — volume multiplier 1.5x→1.2x, sector filter tolerance (-0.5%), enhanced sector logging
 - **Phase 6:** AWS EC2 headless deployment (Ubuntu + Command Line OpenD) for 24/7 operation + email alerts via AWS SES. PDT $25K rule eliminated Jun 4, 2026 — confirmed by Moomoo; standard $2,000 margin account sufficient, unlimited day trades.
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API

@@ -33,7 +33,7 @@ TRADING_END_TIME   = "15:45"   # Avoid last 15min before close (3:45–4:00)
 MAX_DAILY_LOSS_USD = 150.0     # ~3 max stop-loss hits on $1,000 positions
 
 # Volume confirmation — current bar must exceed this multiple of the avg bar volume
-VOLUME_MULTIPLIER = 1.5        # e.g. 1.5x avg = above-average activity required
+VOLUME_MULTIPLIER = 1.2        # e.g. 1.2x avg = slight above-average activity required (lowered from 1.5 Aug 26: 1.5x was chronically blocking in low-volatility tape)
 
 # Capital flow filter — only buy if intraday net capital is flowing into the stock
 CAPITAL_FLOW_FILTER = True
@@ -71,6 +71,7 @@ GAP_MAX_DOWN_PCT = 2.0   # Already down >2% today → stock is weak, don't buy
 
 # Sector confirmation — require the stock's sector ETF to also be in an uptrend
 SECTOR_FILTER = True
+SECTOR_FILTER_MIN_GAP_PCT = -0.5  # Only block if sector ETF is more than 0.5% below its rolling avg (mirrors regime filter tolerance)
 SECTOR_PROXIES = {
     # Semiconductors → SMH (already on watchlist)
     "US.NVDA": "US.SMH", "US.MU": "US.SMH", "US.AVGO": "US.SMH",
