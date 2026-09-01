@@ -180,6 +180,7 @@ MoomooTradingBot/
 | Daily history reset | reset_daily_history() clears price + volume history each morning | Prevents stale bars from prior days inflating avg_vol and anchoring 2hr_low to multi-day lows |
 | Volume multiplier 1.5x → 1.2x | Lowered Aug 26, 2026 | 1.5x caused 7 consecutive no-trade days in low-volatility tape; 1.2x still filters genuinely thin bars |
 | Sector filter tolerance | SECTOR_FILTER_MIN_GAP_PCT = -0.5 | SMH/QQQ trivially below avg (-0.1% to -0.4%) blocked all semi/tech buys for 7+ days; mirrors regime filter fix |
+| EOD loop hammering OpenD | Removed is_market_open() from 1s EOD tick — plain time check instead | is_market_open() opens a new OpenD connection every second (~3,600/hr), saturating the connection pool and causing subscribe failures that killed afternoon scanning |
 | SL cooldown | 30-min block on re-entry after stop loss (record_stop_loss/is_in_cooldown) | Prevents re-buying a falling stock immediately after being stopped out |
 | SPCX removed | Removed SpaceX IPO from watchlist | IPO-stage volatility caused -3.4%, -6.1%, -7.6% overnight gaps — incompatible with strategy |
 | Market regime filter | SPY 10-bar rolling avg check before any buy | Prevents buying individual stocks when the broad market is falling |
