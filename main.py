@@ -290,7 +290,10 @@ def main():
     while _running:
         # EOD close check — runs every loop tick (every 1s) independent of scan timing.
         # Prevents positions being held overnight if a scan misses the 15:30 window.
-        if config.EOD_CLOSE_ENABLED and market_data.is_market_open():
+        # Note: no is_market_open() call here — that opens an OpenD connection every second,
+        # which saturates the connection pool. Time check is sufficient; close_all_positions()
+        # is a no-op when no positions are open.
+        if config.EOD_CLOSE_ENABLED:
             now_et = datetime.now(_ET).strftime("%H:%M")
             if now_et >= config.EOD_CLOSE_TIME:
                 close_all_positions()
