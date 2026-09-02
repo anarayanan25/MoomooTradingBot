@@ -147,10 +147,10 @@ def check_buy_signal(symbol: str, current_price: float) -> bool:
     return True
 
 
-def check_sell_signal(symbol: str, entry_price: float, current_price: float) -> tuple[bool, str]:
+def check_sell_signal(symbol: str, entry_price: float, current_price: float, highest_price: float | None = None) -> tuple[bool, str]:
     """
     Returns (should_sell, reason).
-    Checks take profit and stop loss against entry price.
+    Checks take profit, trailing stop, and stop loss against entry price.
     """
     pct_change = (current_price - entry_price) / entry_price * 100
 
@@ -160,6 +160,19 @@ def check_sell_signal(symbol: str, entry_price: float, current_price: float) -> 
             symbol, entry_price, current_price, pct_change,
         )
         return True, "take_profit"
+
+    # Trailing stop — only arms once price has moved up by TRAILING_STOP_TRIGGER_PCT
+    if config.TRAILING_STOP_ENABLED and highest_price is not None:
+        trail_trigger = entry_price * (1 + config.TRAILING_STOP_TRIGGER_PCT / 100)
+        if highest_price >= trail_trigger:
+            trail_stop = highest_price * (1 - config.TRAILING_STOP_DISTANCE_PCT / 100)
+            if current_price <= trail_stop:
+                log.info(
+                    "TRAIL STOP %s | entry=%.4f | high=%.4f | trail=%.4f | current=%.4f | locked=+%.2f%%",
+                    symbol, entry_price, highest_price, trail_stop,
+                    current_price, (trail_stop - entry_price) / entry_price * 100,
+                )
+                return True, "trail_stop"
 
     if pct_change <= -config.STOP_LOSS_PCT:
         log.info(

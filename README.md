@@ -120,6 +120,7 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 | Capital flow filter | Net intraday institutional inflow must be positive (total + big money) |
 | Take profit | +3% from entry price |
 | Stop loss | -1.5% from entry price |
+| Trailing stop | Arms at +1% above entry; trails 1% below highest price reached — locks in partial profit before TP |
 | TP/SL monitoring | Real-time push (every tick) via StockQuoteHandlerBase, not just 5-min scan |
 | Risk/reward | 2:1 |
 | Scan interval | Every 5 minutes |
@@ -132,6 +133,8 @@ launchctl unload ~/Library/LaunchAgents/com.anand.moomoobot.plist
 
 **Buy signal chain (8 stages):**
 Stock active → Price breakout → Volume surge → Market uptrend → RSI in range → No gap → Sector uptrend → Institutional inflow → Buy
+
+**Exit priority order:** Take profit (+3%) → Trailing stop (trail 1% below highest, armed at +1%) → Stop loss (-1.5%)
 
 **Watchlist (17 symbols):**
 - Mag 7: AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA
@@ -181,6 +184,7 @@ MoomooTradingBot/
 | Volume multiplier 1.5x → 1.2x | Lowered Aug 26, 2026 | 1.5x caused 7 consecutive no-trade days in low-volatility tape; 1.2x still filters genuinely thin bars |
 | Sector filter tolerance | SECTOR_FILTER_MIN_GAP_PCT = -0.5 | SMH/QQQ trivially below avg (-0.1% to -0.4%) blocked all semi/tech buys for 7+ days; mirrors regime filter fix |
 | EOD loop hammering OpenD | Removed is_market_open() from 1s EOD tick — plain time check instead | is_market_open() opens a new OpenD connection every second (~3,600/hr), saturating the connection pool and causing subscribe failures that killed afternoon scanning |
+| Avg win < avg loss despite 2:1 RR | Trailing stop added — arms at +1%, trails 1% below highest price | Realized avg win ($27) was below avg loss ($29) because reversals from near-TP gave back gains; trailing stop locks in partial profit before full reversal |
 | SL cooldown | 30-min block on re-entry after stop loss (record_stop_loss/is_in_cooldown) | Prevents re-buying a falling stock immediately after being stopped out |
 | SPCX removed | Removed SpaceX IPO from watchlist | IPO-stage volatility caused -3.4%, -6.1%, -7.6% overnight gaps — incompatible with strategy |
 | Market regime filter | SPY 10-bar rolling avg check before any buy | Prevents buying individual stocks when the broad market is falling |
@@ -205,18 +209,21 @@ MoomooTradingBot/
 
 ---
 
-## Paper Trading Performance (as of Jun 18, 2026)
+## Paper Trading Performance (as of Sep 2, 2026)
 
 | Metric | Value |
 |--------|-------|
 | Starting capital | $1,000,000 (paper) |
-| Realized P&L | ~-$16 (recovering) |
-| Total closed trades | ~26 |
-| Win rate | ~40% |
-| Avg take profit | ~+$32 |
-| Avg stop loss | ~-$25 (skewed by gap events) |
+| Realized P&L | **+$193.30** |
+| Trading days | 24 (May 21 – Aug 17) |
+| Total closed trades | 52 |
+| Win rate | 52% (27W / 25L) |
+| Avg win | ~+$27 |
+| Avg loss | ~-$29 |
+| Best day | Jun 16 +$84.09 |
+| Worst day | Jun 17 -$51.14 |
 
-> ⚠️ **Gap risk incidents:** AVGO Jun 15 (-$171.40 / -17.9%), SPCX Jun 16–18 (multiple -3% to -8% overnight gaps). Root cause: SpaceX IPO stock included in watchlist. SPCX removed Jun 18. EOD close and SL cooldown added to prevent recurrence.
+> ⚠️ **Gap risk incidents:** AVGO Jun 15 (-$171.40 / -17.9%), SPCX Jun 16–18 (multiple -3% to -8% overnight gaps). Root cause: SpaceX IPO stock included in watchlist. SPCX removed Jun 18. EOD close and SL cooldown added to prevent recurrence. Post-Jun-18 losses are capped at ~-$15/trade.
 
 ---
 
@@ -247,5 +254,7 @@ MoomooTradingBot/
 - **Phase 5e (complete):** Advanced signal filters — market regime, RSI, gap/earnings, sector confirmation
 - **Phase 5f (complete):** Data reset & filter tuning — daily history reset, RSI_MAX 70→80, regime filter tolerance, enhanced logging
 - **Phase 5g (complete):** Filter tuning round 2 — volume multiplier 1.5x→1.2x, sector filter tolerance (-0.5%), enhanced sector logging
+- **Phase 5h (complete):** EOD loop bug fix — removed is_market_open() from 1-second tick (was opening 3,600 OpenD connections/hr)
+- **Phase 5i (complete):** Trailing stop — arms at +1% above entry, trails 1% below highest price reached; fixes avg-win < avg-loss problem
 - **Phase 6:** AWS EC2 headless deployment (Ubuntu + Command Line OpenD) for 24/7 operation + email alerts via AWS SES. PDT $25K rule eliminated Jun 4, 2026 — confirmed by Moomoo; standard $2,000 margin account sufficient, unlimited day trades.
 - **Phase 7:** Questrade prototype — port strategy to Canadian broker API

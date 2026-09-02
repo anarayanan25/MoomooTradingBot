@@ -17,6 +17,11 @@ BUY_THRESHOLD_PCT  = 2.0   # Buy if current price is +2% above the 2hr rolling l
 TAKE_PROFIT_PCT    = 3.0   # Sell if price rises +3% from entry
 STOP_LOSS_PCT      = 1.5   # Sell if price falls -1.5% from entry
 
+# Trailing stop — locks in profits once price has moved up enough to be worth protecting
+TRAILING_STOP_ENABLED      = True
+TRAILING_STOP_TRIGGER_PCT  = 1.0   # Activate trail once price is +1% above entry
+TRAILING_STOP_DISTANCE_PCT = 1.0   # Trail SL sits 1% below the highest price reached
+
 # How many 5-min scans to look back for the rolling low (24 x 5min = 2 hours)
 LOOKBACK_BARS = 24
 

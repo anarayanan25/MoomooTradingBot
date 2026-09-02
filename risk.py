@@ -84,9 +84,19 @@ def add_position(symbol: str, entry_price: float, quantity: int, order_id: str):
         "entry_price": entry_price,
         "quantity": quantity,
         "order_id": order_id,
+        "highest_price": entry_price,
     }
     _save()
     log.info("Position opened: %s x%d @ %.4f (order %s)", symbol, quantity, entry_price, order_id)
+
+
+def update_highest_price(symbol: str, price: float):
+    """Track the highest price reached for a position (used by trailing stop)."""
+    pos = _positions.get(symbol)
+    if pos is None:
+        return
+    if price > pos.get("highest_price", pos["entry_price"]):
+        pos["highest_price"] = price
 
 
 def remove_position(symbol: str):

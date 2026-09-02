@@ -150,8 +150,9 @@ def scan():
         # --- Check existing position: take profit or stop loss ---
         position = risk.get_position(symbol)
         if position:
+            risk.update_highest_price(symbol, price)
             should_sell, reason = strategy.check_sell_signal(
-                symbol, position["entry_price"], price
+                symbol, position["entry_price"], price, position.get("highest_price")
             )
             if should_sell:
                 # Atomically claim the sell to prevent race with real-time monitor
